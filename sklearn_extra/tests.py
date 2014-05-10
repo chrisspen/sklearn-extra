@@ -16,9 +16,26 @@ from ensemble import (
     StreamingExtraTreesClassifier,
 )
 
+# Note, this must be globally accessible so it can be used with
+# multiprocessing.
+def test_map_train(cls, args):
+    a,b = args
+    print('training:',a,b)
+    dataset = load_digits()
+    data = [_ for i,_ in enumerate(dataset.data) if (i % b) == a]
+    target = [_ for i,_ in enumerate(dataset.target) if (i % b) == a]
+    clf = cls()
+    clf.fit(data, target)
+    score = clf.score(data, target)
+    print('score:',score)
+    return clf
+
 class Tests(unittest.TestCase):
     
     def test_forest_classifiers(self):
+        """
+        Confirm the basic accuracy of our classifiers.
+        """
         
         #http://scikit-learn.org/stable/datasets/
         n_estimators=100
@@ -54,6 +71,9 @@ class Tests(unittest.TestCase):
                 print('%.04f\t%s' % (score, cls.__name__))
     
     def test_reduce(self):
+        """
+        Confirm we can merge our estimators together.
+        """
         
         scores = {}
         
@@ -122,7 +142,47 @@ class Tests(unittest.TestCase):
         self.assertEqual(scores['Digits StreamingExtraTreesClassifier 1'], 1.0)
         self.assertTrue(scores['Digits StreamingRandomForestClassifier 1'] > scores['Digits StreamingRandomForestClassifier A'])
         self.assertTrue(scores['Digits StreamingRandomForestClassifier 1'] > scores['Digits StreamingRandomForestClassifier B'])
+    
+    def test_pickle(self):
+        """
+        Confirm we can reliably pickle our estimators.
+        """
+        import pickle
+        clf = StreamingExtraTreesClassifier()
+        dataset = load_digits()
+        clf.fit(dataset.data, dataset.target)
+        score0 = clf.score(dataset.data, dataset.target)
+        s = pickle.dumps(clf)
+        clf = pickle.loads(s)
+        score1 = clf.score(dataset.data, dataset.target)
+        self.assertEqual(score0, score1)
+    
+    def test_map(self):
+        """
+        Confirm we can train forests in parallel.
+        """
+        from multiprocessing import Pool, cpu_count
+        from functools import partial
         
+        # Train separate classifiers in parallel on different segments
+        # of the data.
+        pool = Pool(processes=None)
+        b = 2#cpu_count()
+#        print('cpu_count:',b)
+        results = pool.map(partial(test_map_train, StreamingExtraTreesClassifier), [(a, b) for a in range(b)])
+        print('results:',results)
+        pool.close()
+        pool.join()
+        
+        # Now take those classifiers and merge them together to form
+        # an approximation of a classifier trained on the entire dataset.
+        clf = StreamingExtraTreesClassifier.reduce(*results)
+        dataset = load_digits()
+        print('trees:',len(clf.trees))
+        score = clf.score(dataset.data, dataset.target)
+        print('score:',score)
+        self.assertEqual(score, 1.0)
+    
 if __name__ == '__main__':
     unittest.main()
     
