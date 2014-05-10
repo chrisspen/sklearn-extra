@@ -55,10 +55,10 @@ class TestCommand(Command):
         self.build_virtualenv(self.pv)
         kwargs = dict(pv=self.pv, name=self.name)
         if self.name:
-            cmd = '. ./.env{pv}/bin/activate; python sklearn_extra/tests.py; deactivate'.format(**kwargs)
+            cmd = '. ./.env{pv}/bin/activate; python sklearn_extra/tests.py Tests.{name}; deactivate'.format(**kwargs)
         else:
             cmd = '. ./.env{pv}/bin/activate; python sklearn_extra/tests.py; deactivate'.format(**kwargs)
-        #print(cmd)
+        print(cmd)
         os.system(cmd)
 
 setup(name='sklearn_extra',
