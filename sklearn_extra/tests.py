@@ -30,6 +30,20 @@ def test_map_train(cls, args):
     print('score:',score)
     return clf
 
+class TestMapTrain(object):
+    
+    def train(self, cls, args):
+        a,b = args
+        print('training:',a,b)
+        dataset = load_digits()
+        data = [_ for i,_ in enumerate(dataset.data) if (i % b) == a]
+        target = [_ for i,_ in enumerate(dataset.target) if (i % b) == a]
+        clf = cls()
+        clf.fit(data, target)
+        score = clf.score(data, target)
+        print('score:',score)
+        return clf
+
 class Tests(unittest.TestCase):
     
     def test_forest_classifiers(self):
@@ -176,6 +190,20 @@ class Tests(unittest.TestCase):
         
         # Now take those classifiers and merge them together to form
         # an approximation of a classifier trained on the entire dataset.
+        clf = StreamingExtraTreesClassifier.reduce(*results)
+        dataset = load_digits()
+        print('trees:',len(clf.trees))
+        score = clf.score(dataset.data, dataset.target)
+        print('score:',score)
+        self.assertEqual(score, 1.0)
+        
+        obj = TestMapTrain()
+        pool = Pool(processes=None)
+        b = 2
+        results = pool.map(partial(obj.train, StreamingExtraTreesClassifier), [(a, b) for a in range(b)])
+        print('results:',results)
+        pool.close()
+        pool.join()
         clf = StreamingExtraTreesClassifier.reduce(*results)
         dataset = load_digits()
         print('trees:',len(clf.trees))
