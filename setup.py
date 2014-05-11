@@ -11,6 +11,7 @@ def get_reqs(testing=False):
         'scipy',
         'scikit-learn>=0.14.1',
         'six',
+        'joblib==0.8.0a3',
     ]
 
 class TestCommand(Command):

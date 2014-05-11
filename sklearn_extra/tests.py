@@ -196,6 +196,13 @@ class Tests(unittest.TestCase):
         score = clf.score(dataset.data, dataset.target)
         print('score:',score)
         self.assertEqual(score, 1.0)
+    
+    def test_map2(self):
+        """
+        Confirm multiprocessing works even with instance methods.
+        """
+        from multiprocessing import Pool, cpu_count
+        from functools import partial
         
         obj = TestMapTrain()
         pool = Pool(processes=None)
@@ -204,6 +211,27 @@ class Tests(unittest.TestCase):
         print('results:',results)
         pool.close()
         pool.join()
+        clf = StreamingExtraTreesClassifier.reduce(*results)
+        dataset = load_digits()
+        print('trees:',len(clf.trees))
+        score = clf.score(dataset.data, dataset.target)
+        print('score:',score)
+        self.assertEqual(score, 1.0)
+        
+    def test_joblib(self):
+        """
+        Confirm joblib's Parallel wrapper around multiprocessing.Pool.map
+        is able to train our forest in parallel.
+        
+        https://pythonhosted.org/joblib/generated/joblib.Parallel.html
+        """
+        from joblib import Parallel, delayed
+        obj = TestMapTrain()
+        func = partial(obj.train, StreamingExtraTreesClassifier)
+        b = 2
+        results = Parallel(n_jobs=-1, verbose=100)(delayed(func)((a, b)) for a in range(b))
+        print('results:',results)
+        
         clf = StreamingExtraTreesClassifier.reduce(*results)
         dataset = load_digits()
         print('trees:',len(clf.trees))
