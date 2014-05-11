@@ -16,6 +16,8 @@ from ensemble import (
     StreamingExtraTreesClassifier,
 )
 
+import utils
+
 # Note, this must be globally accessible so it can be used with
 # multiprocessing.
 def test_map_train(cls, args):
@@ -54,6 +56,9 @@ class Tests(unittest.TestCase):
         #http://scikit-learn.org/stable/datasets/
         n_estimators=100
         
+        # The number of parts the dataset will be split into.
+        parts = 10
+        
         datasets = [
             ('Iris', load_iris()),
             ('Digits', load_digits()),
@@ -75,13 +80,31 @@ class Tests(unittest.TestCase):
         ]
         
         for name, dataset in datasets:
-            print('\nDataset\t%s' % name)
+            print('\nDataset\t%s' % name, len(dataset.data))
+            
+            # Split our dataset into evenly-sized parts, simulating having
+            # to train our classifiers out-of-core on massive datasets.
+            # Note, the reference classifiers that don't support partial_fit()
+            # will only be trained on each individual chunk.
+            parts_n = len(dataset.data)/parts
+            data_chunks = list(utils.chunks(dataset.data, parts_n))
+            target_chunks = list(utils.chunks(dataset.target, parts_n))
+            
             print('Score\tClassifier')
             for cls, cls_callable in classifiers:
                 random.seed(0)
                 clf = cls_callable()
-                scores = cross_val_score(clf, dataset.data, dataset.target)
-                score = scores.mean()
+                for data, target in zip(data_chunks, target_chunks):
+#                    print(data)
+#                    print(target)
+                    assert len(data) == len(target)
+                    if hasattr(clf, 'partial_fit'):
+                        clf.partial_fit(data, target)
+                    else:
+                        clf.fit(data, target)
+                #scores = cross_val_score(clf, data, target)
+                #score = scores.mean()
+                score = clf.score(dataset.data, dataset.target)
                 print('%.04f\t%s' % (score, cls.__name__))
     
     def test_reduce(self):
