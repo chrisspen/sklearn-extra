@@ -115,7 +115,8 @@ class Tests(unittest.TestCase):
         scores = {}
         
         #http://scikit-learn.org/stable/datasets/
-        n_estimators=100
+        n_estimators = 2
+        partial_fit_runs = 5
         
         datasets = [
             ('Iris', load_iris()),
@@ -123,18 +124,16 @@ class Tests(unittest.TestCase):
         ]
         
         classifiers = [
-#            (AdaBoostClassifier, partial(AdaBoostClassifier, n_estimators=n_estimators)),
-#            
-#            (ExtraTreesClassifier, partial(ExtraTreesClassifier, n_estimators=n_estimators)),
-##            
+            (AdaBoostClassifier, partial(AdaBoostClassifier, n_estimators=n_estimators)),
+            
             (DecisionTreeClassifier, DecisionTreeClassifier),
-            (StreamingDecisionTreeClassifier, partial(StreamingDecisionTreeClassifier, n_estimators=n_estimators)),
+            (StreamingDecisionTreeClassifier, partial(StreamingDecisionTreeClassifier, n_estimators=n_estimators/2)),
 
             (RandomForestClassifier, partial(RandomForestClassifier, n_estimators=n_estimators)),
-            (StreamingRandomForestClassifier, partial(StreamingRandomForestClassifier, n_estimators=n_estimators)),
+            (StreamingRandomForestClassifier, partial(StreamingRandomForestClassifier, n_estimators=n_estimators/2)),
             
             (ExtraTreesClassifier, partial(ExtraTreesClassifier, n_estimators=n_estimators)),
-            (StreamingExtraTreesClassifier, partial(StreamingExtraTreesClassifier, n_estimators=n_estimators)),
+            (StreamingExtraTreesClassifier, partial(StreamingExtraTreesClassifier, n_estimators=n_estimators/2)),
         ]
         
         for name, dataset in datasets:
@@ -151,20 +150,37 @@ class Tests(unittest.TestCase):
                 
                 # Train a classifier on the first half of the dataset.
                 clf_a = cls_callable()
-                clf_a.fit(dataset.data[:dlen/2], dataset.target[:dlen/2])
+                if hasattr(clf_a, 'partial_fit'):
+                    for _run in range(partial_fit_runs):
+                        clf_a.partial_fit(dataset.data[:dlen/2], dataset.target[:dlen/2])
+                    # Ensure that no matter how many times we call partial_fit(),
+                    # the number of trees is properly enforced.
+                    self.assertEqual(len(clf_a.trees), min(clf_a.n_estimators, partial_fit_runs))
+                else:
+                    clf_a.fit(dataset.data[:dlen/2], dataset.target[:dlen/2])
                 score_a = clf_a.score(dataset.data, dataset.target)
                 
                 # Train a classifier on the second half of the dataset.
                 clf_b = cls_callable()
-                clf_b.fit(dataset.data[dlen/2:], dataset.target[dlen/2:])
+                if hasattr(clf_b, 'partial_fit'):
+                    for _run in range(partial_fit_runs):
+                        clf_b.partial_fit(dataset.data[dlen/2:], dataset.target[dlen/2:])
+                    self.assertEqual(len(clf_b.trees), min(clf_b.n_estimators, partial_fit_runs))
+                else:
+                    clf_b.fit(dataset.data[dlen/2:], dataset.target[dlen/2:])
                 score_b = clf_b.score(dataset.data, dataset.target)
                 
                 # Merge A+B and test on the full dataset to measure
                 # the usefulness of the merge.
                 score1 = 0.0
                 if hasattr(cls, 'reduce'):
-                    clf1 = cls.reduce(clf_a, clf_b)
+                    clf1 = cls.reduce(
+                        parts=[clf_a, clf_b],
+                        params=dict(n_estimators=n_estimators))
+                    self.assertEqual(clf1.n_estimators, n_estimators)
+                    self.assertEqual(len(clf1.trees), len(clf_a.trees)+len(clf_b.trees))
                     score1 = clf1.score(dataset.data, dataset.target)
+                    self.assertTrue(score1 > 0.3)
                 
                 scores['%s %s 0' % (name, cls.__name__)] = score0
                 scores['%s %s A' % (name, cls.__name__)] = score_a
@@ -213,7 +229,7 @@ class Tests(unittest.TestCase):
         
         # Now take those classifiers and merge them together to form
         # an approximation of a classifier trained on the entire dataset.
-        clf = StreamingExtraTreesClassifier.reduce(*results)
+        clf = StreamingExtraTreesClassifier.reduce(parts=results)
         dataset = load_digits()
         print('trees:',len(clf.trees))
         score = clf.score(dataset.data, dataset.target)
@@ -234,7 +250,7 @@ class Tests(unittest.TestCase):
         print('results:',results)
         pool.close()
         pool.join()
-        clf = StreamingExtraTreesClassifier.reduce(*results)
+        clf = StreamingExtraTreesClassifier.reduce(parts=results)
         dataset = load_digits()
         print('trees:',len(clf.trees))
         score = clf.score(dataset.data, dataset.target)
@@ -255,7 +271,7 @@ class Tests(unittest.TestCase):
         results = Parallel(n_jobs=-1, verbose=100)(delayed(func)((a, b)) for a in range(b))
         print('results:',results)
         
-        clf = StreamingExtraTreesClassifier.reduce(*results)
+        clf = StreamingExtraTreesClassifier.reduce(parts=results)
         dataset = load_digits()
         print('trees:',len(clf.trees))
         score = clf.score(dataset.data, dataset.target)

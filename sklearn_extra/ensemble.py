@@ -52,22 +52,33 @@ class BaseStreamingEstimator(BaseEstimator):
         return p
     
     @classmethod
-    def reduce(cls, *args):
+    def reduce(cls, parts, params={}):
         """
         Merges several classifiers, perhaps trained on separate data subsets,
         into a single classifier.
+        
+        Note, unless otherwise stated in the params, this assumes that
+        parent.n_estimators == parts[0].n_estimators.
+        
+        You'll likely always want to specify and explicit n_estimators
+        for the parent.
         """
-        assert args, 'There must be at least one argument.'
-        params = args[0].get_params()
-        n_estimators = 0
+        assert parts, 'There must be at least one argument.'
+        _params = parts[0].get_params()
+        _params.update(params)
+        params = _params
         trees = []
-        for _ in args:
-            n_estimators += 1
+        for _ in parts:
+            assert isinstance(_, cls), \
+                'Can only reduce instances of %s, not %s.' % (cls, type(_))
             trees.extend(copy.deepcopy(_.trees))
-        if 'n_estimators' in params:
-            del params['n_estimators']
-        c = cls(n_estimators=n_estimators, **params)
+#        if 'n_estimators' in params:
+#            del params['n_estimators']
+        c = cls(**params)
         c.trees = trees
+        assert len(c.trees) <= c.n_estimators, \
+            "At most %i n_estimators are allowed, but %i trees were found." \
+                % (c.n_estimators, len(c.trees))
         return c
     
     @property
@@ -89,7 +100,13 @@ class StreamingForestClassifier(BaseStreamingEstimator, ClassifierMixin):
     def classes_(self):
         return sorted(self.trees[0].classes_)
     
+    def set_n_estimators(self, v):
+        v = int(v)
+        assert v > 0
+        self.n_estimators = v
+        
     def partial_fit(self, X, y, **kwargs):
+#        print('cls:',self)
         
         # Train a new decision tree on the data subset.
         tree = self.base_estimator(**self.tree_kwargs)
@@ -98,14 +115,21 @@ class StreamingForestClassifier(BaseStreamingEstimator, ClassifierMixin):
         
         # Check relevance of existing trees with current dataset.
         scores = {} # {score:tree}
+#        print('trees00:',len(self.trees))
         for tree in self.trees:
             #1.0 is good, 0.0 is bad.
-            scores[tree.score(X, y)] = tree
+            # We include id() in case a tree has the identical score
+            # as another.
+            scores[(tree.score(X, y), id(tree))] = tree
         
         # Keep only the N best trees.
         n_estimators = self.n_estimators
+#        print('n_estimators0:',n_estimators)
+#        print('trees011:',len(self.trees))
+#        print('scored:',scores.items())
         ordered_trees = sorted(scores.items(), reverse=True)[:n_estimators]
         self.trees = [_tree for _score, _tree in ordered_trees]
+#        print('trees012:',len(self.trees))
     
     def predict(self, X):
         if not self.trees:
